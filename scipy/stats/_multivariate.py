@@ -209,6 +209,7 @@ class _PSDSafeDiag(_PSD):
     diagonal element is precisely zero (or so close to zero that the
     *fractional* float precision is compromised). _PSD doc below:
     """
+
     def __init__(self, M, lower=True, check_finite=True,
                  cond=None, rcond=None, allow_singular=True):
         self._M = M = np.asarray(M)
@@ -260,7 +261,7 @@ class _PSDSafeDiag(_PSD):
         clean_lam_s_pseudo = np.where(non_degenerate_s, clean_lam_s, np.inf)
         clean_lam_s_pinv = 1 / clean_lam_s_pseudo
 
-        self.eps = _eigvalsh_to_eps(clean_lam_s, cond, rcond) * 1e3  # I guess?
+        self.eps = _eigvalsh_to_eps(clean_lam_s, cond, rcond) * 1e3
         self.U = np.multiply(clean_q, np.sqrt(clean_lam_s_pinv))
         self.V = clean_q[:, ~non_degenerate_s]
         self.rank = np.sum(non_degenerate_s)

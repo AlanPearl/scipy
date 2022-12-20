@@ -310,6 +310,78 @@ class Covariance:
         """
         return CovViaEigendecomposition(eigendecomposition)
 
+    @staticmethod
+    def from_matrix(matrix, safe_diag=True, allow_singular=True):
+        r"""
+        Representation of a covariance provided via any matrix
+
+        Parameters
+        ----------
+        matrix : array_like
+            Covariance (symmetric positive semidefinite) matrix (2-D).
+        safe_diag : bool, optional
+            Whether to rescale to unit diagonal variance during
+            eigendecomposition with _PSDSafeDiag.  (Default: True)
+        allow_singular : bool, optional
+            Whether to allow a singular matrix.  (Default: True)
+
+        See Also
+        --------
+        :class:`scipy.stats._multivariate._PSDSafeDiag`
+        :class:`scipy.stats.multivariate_normal`
+
+        Notes
+        -----
+        This is the most general construction of a Covariance object, and
+        therefore provides no performance benefits.
+
+        The primary benefit of utilizing this method over directly calling
+        multivariate_normal is the default functionality of safe_diag=True.
+        This is useful when variables vary in orders of magnitude. Notably,
+        degeneracies will never be detected along a diagonal, unless that
+        diagonal element is precisely zero (or so close to zero that the
+        *fractional* float precision is compromised).
+
+        Examples
+        --------
+        Prepare a symmetric positive definite covariance matrix ``A`` and a
+        data point ``x``.
+
+        >>> import numpy as np
+        >>> from scipy import stats
+        >>> rng = np.random.default_rng()
+        >>> n = 5
+        >>> A = rng.random(size=(n, n))
+        >>> A = A @ A.T  # make the covariance symmetric positive definite
+        >>> x = rng.random(size=n)
+
+        Create the `Covariance` object from ``A`` (note it may be singular)
+
+        >>> cov = stats.Covariance.from_matrix(A, allow_singular=False)
+        >>> dist = stats.multivariate_normal(mean=0, cov=cov)
+
+        Compare the functionality of the `Covariance` object against
+        reference implementations.
+
+        >>> w, v = np.linalg.eigh(A)
+        >>> res = np.abs(cov.whiten(x))
+        >>> ref = np.abs(x @ (v @ np.diag(w**-0.5)))
+        >>> np.allclose(res, ref)
+        True
+        >>> res = cov.log_pdet
+        >>> ref = np.linalg.slogdet(A)[-1]
+        >>> np.allclose(res, ref)
+        True
+
+        """
+        if safe_diag:
+            psd = _multivariate._PSDSafeDiag(
+                matrix, allow_singular=allow_singular)
+        else:
+            psd = _multivariate._PSD(
+                matrix, allow_singular=allow_singular)
+        return CovViaPSD(psd)
+
     def whiten(self, x):
         """
         Perform a whitening transformation on data.
@@ -607,6 +679,7 @@ class CovViaEigendecomposition(Covariance):
         residual = np.linalg.norm(x @ self._null_basis, axis=-1)
         in_support = residual < self._eps
         return in_support
+
 
 class CovViaPSD(Covariance):
     """
