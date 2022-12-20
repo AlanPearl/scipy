@@ -16,7 +16,7 @@ import numpy
 import numpy as np
 
 import scipy.linalg
-from scipy.stats._multivariate import (_PSD,
+from scipy.stats._multivariate import (_PSD, _PSDSafeDiag,
                                        _lnB,
                                        _cho_inv_batch,
                                        multivariate_normal_frozen)
@@ -35,6 +35,8 @@ from scipy.special import multigammaln
 from .common_tests import check_random_state_property
 
 from unittest.mock import patch
+
+_covariance.CovViaPSDSafeDiag = _covariance.CovViaPSD
 
 
 def assert_close(res, ref, *args, **kwargs):
@@ -80,7 +82,9 @@ class TestCovariance:
                                  "Cholesky": np.linalg.cholesky,
                                  "Eigendecomposition": np.linalg.eigh,
                                  "PSD": lambda x:
-                                     _PSD(x, allow_singular=True)}
+                                     _PSD(x, allow_singular=True),
+                                 "PSDSafeDiag": lambda x:
+                                     _PSDSafeDiag(x, allow_singular=True)}
     _all_covariance_types = np.array(list(_covariance_preprocessing))
     _matrices = {"diagonal full rank": np.diag([1, 2, 3]),
                  "general full rank": [[5, 1, 3], [1, 6, 4], [3, 4, 7]],
@@ -88,10 +92,10 @@ class TestCovariance:
                  "general singular": [[5, -1, 0], [-1, 5, 0], [0, 0, 0]]}
     _cov_types = {"diagonal full rank": _all_covariance_types,
                   "general full rank": _all_covariance_types[1:],
-                  "diagonal singular": _all_covariance_types[[0, -2, -1]],
-                  "general singular": _all_covariance_types[-2:]}
+                  "diagonal singular": _all_covariance_types[[0, -3, -2, -1]],
+                  "general singular": _all_covariance_types[-3:]}
 
-    @pytest.mark.parametrize("cov_type_name", _all_covariance_types[:-1])
+    @pytest.mark.parametrize("cov_type_name", _all_covariance_types[:-2])
     def test_factories(self, cov_type_name):
         A = np.diag([1, 2, 3])
         x = [-4, 2, 5]

@@ -200,6 +200,76 @@ class _PSD:
         return self._pinv
 
 
+class _PSDSafeDiag(_PSD):
+    """
+    A 'safer' construction of the _PSD class for some applications
+
+    Useful when variables vary drastically in orders of magnitude. Notably,
+    degeneracies will never be detected along a diagonal, unless that
+    diagonal element is precisely zero (or so close to zero that the
+    *fractional* float precision is compromised). _PSD doc below:
+    """
+    def __init__(self, M, lower=True, check_finite=True,
+                 cond=None, rcond=None, allow_singular=True):
+        self._M = M = np.asarray(M)
+
+        # Normalize by std of each variable (i.e. sqrt(diag(cov)))
+        # Don't scale where var is less than 2^minexp (10^-308 for float64)
+        # since this is where fractional precision starts decreasing
+        inv_norm = np.sqrt(np.diag(M))
+        inv_norm[inv_norm < 2 ** (np.finfo(inv_norm.dtype.type).minexp/2)] = 1
+        norm = 1 / inv_norm
+
+        # Perform eigendecomposition on the correlation matrix
+        # [Let _c denote properties of the correlation matrix (C) and
+        #  _s denote properties of the covariance matrix ($\Sigma$)]
+        corr_matrix = M * norm[:, None] * norm[None, :]
+        lam_c, p = scipy.linalg.eigh(
+            corr_matrix, lower=lower, check_finite=check_finite)
+
+        eps_c = _eigvalsh_to_eps(lam_c, cond, rcond)
+        if np.min(lam_c) < -eps_c:
+            msg = "The input matrix must be symmetric positive semidefinite."
+            raise ValueError(msg)
+        non_degenerate_c = lam_c > eps_c
+        if not allow_singular and not np.all(non_degenerate_c):
+            msg = ("When `allow_singular is False`, the input matrix must be "
+                   "symmetric positive definite.")
+            raise np.linalg.LinAlgError(msg)
+
+        # Perform 'cleaning': set degenerate eignvalues to precisely zero
+        clean_lam_c = np.where(non_degenerate_c, lam_c, 0)
+        # Transform back to original basis to obtain 'cleaned' cov matrix
+        clean_cov = (p @ np.diag(clean_lam_c) @ p.T *
+                     inv_norm[:, None] * inv_norm[None, :])
+
+        # Eigendecomposition of the cleaned cov matrix
+        clean_lam_s, clean_q = scipy.linalg.eigh(
+            clean_cov, lower=lower, check_finite=check_finite)
+
+        # Degenerate eigenvectors of cov yield the highest dot products
+        # with the degenerate eigenvectors of the correlation matrix
+        p_in_orig_basis = p * norm[:, None] * norm[None, :]
+        p_in_orig_basis /= np.sqrt(np.sum(p_in_orig_basis**2, axis=0))
+        p_degen = p_in_orig_basis[:, ~non_degenerate_c]
+        sum_dot_sq = np.sqrt(np.sum((clean_q.T @ p_degen)**2, axis=1))
+        rank_order = np.argsort(sum_dot_sq)
+        non_degenerate_s = rank_order[rank_order] < np.sum(non_degenerate_c)
+
+        # Calculate pseudo-inverse and necessary attributes
+        clean_lam_s_pseudo = np.where(non_degenerate_s, clean_lam_s, np.inf)
+        clean_lam_s_pinv = 1 / clean_lam_s_pseudo
+
+        self.eps = _eigvalsh_to_eps(clean_lam_s, cond, rcond) * 1e3  # I guess?
+        self.U = np.multiply(clean_q, np.sqrt(clean_lam_s_pinv))
+        self.V = clean_q[:, ~non_degenerate_s]
+        self.rank = np.sum(non_degenerate_s)
+        self.log_pdet = np.sum(np.log(clean_lam_s[non_degenerate_s]))
+
+
+_PSDSafeDiag.__doc__ += _PSD.__doc__
+
+
 class multi_rv_generic:
     """
     Class which encapsulates common functionality between all multivariate
